@@ -534,6 +534,7 @@
                     :modelValue="editAuthor"
                     :members="allUsers"
                     :placeholder="t('documents.meta.author_placeholder')"
+                    :clearable="false"
                     @update:modelValue="setDocAuthor"
                   />
                 </div>
@@ -1287,7 +1288,7 @@
               </div>
               <div class="col-span-2">
                 <label class="block text-[10px] text-slate-600 mb-1">{{ t('documents.new_doc.author') }}</label>
-                <MemberPicker :modelValue="newDoc.author" :members="allUsers" :placeholder="t('documents.new_doc.author_placeholder')" @update:modelValue="v => newDoc.author = v" />
+                <MemberPicker :modelValue="newDoc.author" :members="allUsers" :placeholder="t('documents.new_doc.author_placeholder')" :clearable="false" @update:modelValue="v => newDoc.author = v" />
               </div>
             </div>
           </div>
