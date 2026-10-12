@@ -771,10 +771,11 @@
           </div>
 
           <!-- Rendered markdown content — paragraph-level commentable blocks -->
-          <div v-else-if="!editMode && contentBlocks.length > 0" class="pr-12 pl-8 relative">
+          <div v-else-if="!editMode && contentBlocks.length > 0" class="pr-12 pl-8 relative" @scroll.capture="syncTableScroll">
             <div
               v-for="block in contentBlocks"
               :key="block.index"
+              :data-table-id="block.tableId"
               class="comment-block relative group transition-colors duration-200 rounded -mx-2 px-2"
               :class="{
                 'bg-blue-950/20': hasOpenComments(block.index),
@@ -797,7 +798,7 @@
               </button>
 
               <!-- The rendered content block (with [[TYPE:ID|Title]] reference pills) -->
-              <div v-mermaid v-html="sanitize(renderRefLinks(block.html))" class="doc-prose" @click="onRefLinkClick" />
+              <div v-mermaid v-html="sanitize(renderRefLinks(block.html))" class="doc-prose" :class="{ 'tbl-scroll': block.tableId, 'tbl-scroll-last': block.tableLast }" @click="onRefLinkClick" />
 
               <!-- Comment count badge (visible when paragraph has open comments) -->
               <div
@@ -1367,6 +1368,7 @@ import { ref, reactive, computed, watch, onMounted, nextTick, onBeforeUnmount, d
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { buildContentBlocks } from '../utils/contentBlocks.js'
+import { syncTableScroll } from '../utils/tableScroll.js'
 import DOMPurify from 'dompurify'
 import { formatDate as formatDateValue, formatRecent } from '../composables/useFormat.js'
 const sanitize = (html) => DOMPurify.sanitize(html, { ADD_ATTR: ['style', 'data-ref-type', 'data-ref-id'] })
@@ -3030,6 +3032,10 @@ onBeforeUnmount(() => {
   gap: 0;
   border-left: 1px solid rgb(51 65 85);
   border-right: 1px solid rgb(51 65 85);
+  /* A row's scroll range must be its grid's min-width and nothing else: content
+     that outgrows its cell (an unbreakable URL) would otherwise stretch only
+     that row's scroller and drift it out of line with the rest of the table. */
+  overflow: clip;
 }
 .doc-prose :deep(.tbl-hdr-cell) {
   background: rgb(30 41 59);
@@ -3041,6 +3047,7 @@ onBeforeUnmount(() => {
   color: rgb(148 163 184);
   border-bottom: 2px solid rgb(51 65 85);
   border-right: 1px solid rgb(51 65 85);
+  overflow-wrap: anywhere; /* long tokens wrap in their column, not over the next */
   min-width: 0; /* see .tbl-cell below (#14) — without this, the header's own
     grid (independent from every body row's grid) resolves a track wider
     than its fr share whenever the label's min-content width exceeds it,
@@ -3057,6 +3064,7 @@ onBeforeUnmount(() => {
   line-height: 1.6;
   font-size: 0.875rem;
   border-right: 1px solid rgba(51 65 85 / 0.3);
+  overflow-wrap: anywhere; /* long tokens wrap in their column, not over the next */
   min-width: 0; /* allow 1fr grid tracks to shrink below content width (#14) */
 }
 .doc-prose :deep(.tbl-cell:last-child) {
