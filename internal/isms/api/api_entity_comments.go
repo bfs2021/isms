@@ -12,6 +12,46 @@ import (
 	"isms.sh/internal/isms/db"
 )
 
+// entityCommentTypes are the entity_type values entity_comments accepts; keep in
+// step with entity_comments_entity_type_check in the migrations.
+var entityCommentTypes = map[string]bool{
+	"risk": true, "supplier": true, "incident": true, "legal_requirement": true,
+	"change_request": true, "corrective_action": true, "objective": true, "task": true,
+	"system": true, "asset": true, "audit": true, "audit_finding": true,
+	"audit_programme": true, "program": true, "checkin": true, "access_review": true,
+	"document": true, "review": true,
+}
+
+// canonicalCommentEntityID resolves the record a comment is on and returns the
+// id its thread is stored under, and whether the record exists in the org. It is
+// the id /references uses (AUDIT-<id>, FIND-<id>, AP-<id>, a program's key, an
+// objective's display id), so one record has one thread whichever spelling the
+// caller used (#438). Checkins, reviews and access reviews are not reference
+// types: they are keyed by their integer row id.
+func (s *Server) canonicalCommentEntityID(ctx context.Context, orgID int, viewer db.TaskViewer, entityType, entityID string) (string, bool) {
+	switch entityType {
+	case "checkin", "review", "access_review":
+		id, err := strconv.ParseInt(entityID, 10, 64)
+		if err != nil || id <= 0 {
+			return entityID, false
+		}
+		var found bool
+		switch entityType {
+		case "checkin":
+			_, err = s.db.GetCheckin(ctx, orgID, id)
+			found = err == nil
+		case "review":
+			_, err = s.db.GetReview(ctx, orgID, int(id))
+			found = err == nil
+		default:
+			found, err = s.db.AccessReviewExists(ctx, orgID, id)
+			found = found && err == nil
+		}
+		return strconv.FormatInt(id, 10), found
+	}
+	return s.canonicalReferenceID(ctx, orgID, viewer, entityType, entityID)
+}
+
 // privateTask returns the task a comment is on when entityType is "task" and the
 // task is private, else nil. An id that doesn't resolve is not this check's job.
 func (s *Server) privateTask(ctx context.Context, orgID int, entityType, entityID string) *db.Task {
@@ -45,6 +85,12 @@ func (s *Server) handleListEntityComments(c echo.Context) error {
 	// A hidden private task answers like a missing one: an empty thread.
 	if !s.canViewCommentEntity(c, entityType, entityID) {
 		return c.JSON(http.StatusOK, map[string]interface{}{"data": []db.EntityComment{}})
+	}
+
+	// Read the thread under its canonical id; if the id doesn't resolve (a
+	// deleted record, or a legacy row) list the literal id so those still show.
+	if canonicalID, found := s.canonicalCommentEntityID(c.Request().Context(), orgID, taskViewer(c), entityType, entityID); found {
+		entityID = canonicalID
 	}
 
 	comments, err := s.db.ListEntityComments(c.Request().Context(), orgID, entityType, entityID)
@@ -87,7 +133,17 @@ func (s *Server) handleCreateEntityComment(c echo.Context) error {
 	if req.Body == "" {
 		return errRequired("body")
 	}
-	if !s.canViewCommentEntity(c, req.EntityType, req.EntityID) {
+	if !entityCommentTypes[req.EntityType] {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("unknown entity_type: %s", req.EntityType))
+	}
+	// Validate the record and store the thread under its canonical id, so AUDIT-3
+	// and 3 are one thread (#438). Everything below uses entityID, not req.EntityID.
+	viewer := taskViewer(c)
+	entityID, found := s.canonicalCommentEntityID(ctx, orgID, viewer, req.EntityType, req.EntityID)
+	if !found {
+		return apiError(http.StatusBadRequest, CodeNotFoundInOrg, Entity(req.EntityType))
+	}
+	if !s.canViewCommentEntity(c, req.EntityType, entityID) {
 		return apiError(http.StatusBadRequest, CodeNotFoundInOrg, Entity("task"))
 	}
 
@@ -101,36 +157,36 @@ func (s *Server) handleCreateEntityComment(c echo.Context) error {
 			}
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-		if parent.EntityType != req.EntityType || parent.EntityID != req.EntityID {
+		if parent.EntityType != req.EntityType || parent.EntityID != entityID {
 			return apiError(http.StatusBadRequest, CodeInvalidRequest)
 		}
 	}
 
 	comment := &db.EntityComment{
 		EntityType: req.EntityType,
-		EntityID:   req.EntityID,
+		EntityID:   entityID,
 		ParentID:   req.ParentID,
 		Author:     actor,
 		Body:       req.Body,
 	}
 	// A #RISK-1 mention links this record to RISK-1, written with the comment
 	// so neither lands without the other (#194).
-	mentions := s.resolveCommentMentions(ctx, orgID, taskViewer(c), req.EntityType, req.EntityID, req.Body)
+	mentions := s.resolveCommentMentions(ctx, orgID, viewer, req.EntityType, entityID, req.Body)
 	if err := s.db.WithOrgTx(ctx, orgID, func(ctx context.Context, tx pgx.Tx) error {
 		if err := db.CreateEntityCommentTx(ctx, tx, orgID, comment); err != nil {
 			return err
 		}
 		return db.AddCommentReferencesTx(ctx, tx, orgID, db.CommentTypeEntityComment, comment.ID, actor, mentions)
 	}); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return pgxHTTPError(err)
 	}
 
 	// The activity feed and chat webhooks are org-wide, so a private task's
 	// comment is logged without its body.
-	priv := s.privateTask(ctx, orgID, req.EntityType, req.EntityID)
-	detail := fmt.Sprintf("Comment on %s %s: %s", req.EntityType, req.EntityID, truncateStr(req.Body, 80))
+	priv := s.privateTask(ctx, orgID, req.EntityType, entityID)
+	detail := fmt.Sprintf("Comment on %s %s: %s", req.EntityType, entityID, truncateStr(req.Body, 80))
 	if priv != nil {
-		detail = fmt.Sprintf("Comment on private task %s", req.EntityID)
+		detail = fmt.Sprintf("Comment on private task %s", entityID)
 	}
 	s.logAndNotify(ctx, orgID, &db.Activity{
 		Actor:  actor,
@@ -148,7 +204,7 @@ func (s *Server) handleCreateEntityComment(c echo.Context) error {
 	s.notifyMentions(ctx, orgID, actor, req.Body,
 		fmt.Sprintf("%s mentioned you in a comment", actor),
 		NotifyKeyMentionComment,
-		entityLink(req.EntityType, req.EntityID), canSee...)
+		entityLink(req.EntityType, entityID), canSee...)
 
 	return c.JSON(http.StatusCreated, comment)
 }
