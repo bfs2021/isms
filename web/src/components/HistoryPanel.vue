@@ -14,9 +14,9 @@
               <div class="truncate">
                 <template v-if="g.entries.length === 1">
                   <span class="font-medium">{{ shortAction(g.entries[0]) }}</span>
-                  <span v-if="g.entries[0].field" class="text-slate-500"> {{ g.entries[0].field.replace(/_/g, ' ') }}</span>
-                  <span v-if="g.entries[0].new_value && !g.entries[0].old_value" class="text-emerald-400/60"> {{ trunc(g.entries[0].new_value) }}</span>
-                  <span v-if="g.entries[0].old_value && g.entries[0].new_value" class="text-slate-600"> {{ trunc(g.entries[0].old_value) }} → {{ trunc(g.entries[0].new_value) }}</span>
+                  <span v-if="g.entries[0].field" class="text-slate-500 ml-1">{{ g.entries[0].field.replace(/_/g, ' ') }}</span>
+                  <span v-if="g.entries[0].new_value && !g.entries[0].old_value" class="text-emerald-400/60 ml-1">{{ trunc(g.entries[0].new_value) }}</span>
+                  <span v-if="g.entries[0].old_value && g.entries[0].new_value" class="text-slate-600 ml-1">{{ trunc(g.entries[0].old_value) }} → {{ trunc(g.entries[0].new_value) }}</span>
                 </template>
                 <template v-else>
                   <span class="font-medium">{{ groupLabel(g) }}</span>
@@ -58,6 +58,12 @@ function shortAction(e) {
     delete: t('components.history.action.delete'),
     reading: t('components.history.action.reading'),
     suggestion_applied: t('components.history.action.suggestion_applied'),
+    approved: t('components.history.action.approved'),
+    changes_requested: t('components.history.action.changes_requested'),
+    proposed_revision: t('components.history.action.proposed_revision'),
+    merged: t('components.history.action.merged'),
+    closed: t('components.history.action.closed'),
+    confirmed: t('components.history.action.confirmed'),
   }
   return m[e.action] || e.detail || e.action
 }
