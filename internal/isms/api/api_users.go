@@ -267,7 +267,7 @@ func (s *Server) handleCreateOrganization(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "this slug is reserved")
 	}
 
-	// Determine repo path — ISMS_DATA_DIR is required and resolved to absolute at startup.
+	// Determine repo path — ISMS_DATA_DIR is required; it is used as given, so a relative value yields a relative repo path.
 	dataDir := os.Getenv("ISMS_DATA_DIR")
 	if dataDir == "" {
 		return echo.NewHTTPError(http.StatusInternalServerError, "ISMS_DATA_DIR not configured")
@@ -441,11 +441,6 @@ func (s *Server) handleRemoveTemplate(c echo.Context) error {
 	orgID := getOrgID(c)
 	ctx := c.Request().Context()
 
-	org, err := s.db.GetOrganization(ctx, orgID)
-	if err != nil {
-		return errNotFound("organization")
-	}
-
 	st, err := s.storeForOrg(ctx, orgID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -459,7 +454,7 @@ func (s *Server) handleRemoveTemplate(c echo.Context) error {
 	}
 
 	// The template documents live under documents/<template>/
-	dirPath := filepath.Join(org.RepoPath, "documents", name)
+	dirPath := filepath.Join(st.Root(), "documents", name)
 	commitHash, err := st.DeleteDirectory(dirPath, authorName, email,
 		fmt.Sprintf("chore: remove %s template documents", name))
 	if err != nil {

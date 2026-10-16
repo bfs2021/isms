@@ -195,7 +195,15 @@ func (s *Server) storeForOrg(ctx context.Context, orgID int) (*store.Store, erro
 	if err != nil {
 		return nil, fmt.Errorf("organization not found: %w", err)
 	}
-	st, err := store.NewBare(org.RepoPath)
+	repoPath, fellBack, err := store.ResolveRepoPath(org.RepoPath, os.Getenv("ISMS_DATA_DIR"), org.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("opening repo for org %d: %w", orgID, err)
+	}
+	if fellBack {
+		log.Printf("WARNING: org %s: stored repo path %s cannot be opened; using %s under ISMS_DATA_DIR. Run `isms server org set-repo-path --org %s --path %s` to make it permanent.",
+			org.Slug, org.RepoPath, repoPath, org.Slug, repoPath)
+	}
+	st, err := store.NewBare(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening repo for org %d: %w", orgID, err)
 	}
