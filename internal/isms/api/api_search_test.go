@@ -152,3 +152,56 @@ func TestAuditSearchEntriesEmpty(t *testing.T) {
 		t.Errorf("nil findings → %d entries, want 0", len(got))
 	}
 }
+
+func TestLegalSearchEntry(t *testing.T) {
+	lr := db.LegalRequirement{Identifier: "LEGAL-7", Title: "Data Protection Act", Description: "Privacy law", Jurisdiction: "IS"}
+	e := legalSearchEntry(&lr)
+	if e.Type != "legal" {
+		t.Errorf("Type=%q, want legal (the type GlobalSearch routes on, not legal_requirement)", e.Type)
+	}
+	if e.ID != "LEGAL-7" {
+		t.Errorf("ID=%q, want LEGAL-7", e.ID)
+	}
+	if e.Title != "Data Protection Act" {
+		t.Errorf("Title=%q, want Data Protection Act", e.Title)
+	}
+	if want := legalSearchText(&lr); e.Search != want {
+		t.Errorf("Search=%q, want %q", e.Search, want)
+	}
+}
+
+func TestAuditFindingSearchEntrySeededHeading(t *testing.T) {
+	seed := auditFindingSeedHeading + "\n\n"
+	search := func(title, desc string) string {
+		return auditFindingSearchEntry(&db.AuditFinding{ID: 3, Title: title, Description: desc}).Search
+	}
+
+	got := search("Missing review", seed)
+	for _, bad := range []string{"corrective"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("seeded-only Search %q should not contain %q", got, bad)
+		}
+	}
+	for _, want := range []string{"find-3", "missing review"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("seeded-only Search %q should contain %q", got, want)
+		}
+	}
+
+	got = search("Missing review", seed+"Rotate the leaked keys")
+	if !strings.Contains(got, "rotate the leaked keys") || strings.Contains(got, "corrective action") {
+		t.Errorf("user text under heading: Search=%q", got)
+	}
+
+	if got := search("Corrective action overdue", seed); !strings.Contains(got, "corrective action") {
+		t.Errorf("title must stay searchable: Search=%q", got)
+	}
+
+	if got := search("t", "  ## Corrective Action  \n\nx"); strings.Contains(got, "corrective") {
+		t.Errorf("padded heading should be stripped: Search=%q", got)
+	}
+
+	if got := search("t", "Raise a corrective action with IT"); !strings.Contains(got, "raise a corrective action with it") {
+		t.Errorf("prose containing the words must stay searchable: Search=%q", got)
+	}
+}

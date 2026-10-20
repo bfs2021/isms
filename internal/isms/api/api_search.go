@@ -202,13 +202,39 @@ func auditSearchEntry(a *db.Audit) SearchEntry {
 	}
 }
 
+// The seeded heading is scaffolding, not content: indexed, it would make every
+// finding match "corrective action" (#451). Only lines that are exactly the
+// heading go; anything the user wrote stays searchable.
+func stripAuditFindingSeedHeading(desc string) string {
+	lines := strings.Split(desc, "\n")
+	kept := lines[:0]
+	for _, l := range lines {
+		if strings.TrimSpace(l) != auditFindingSeedHeading {
+			kept = append(kept, l)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
 func auditFindingSearchEntry(f *db.AuditFinding) SearchEntry {
 	id := fmt.Sprintf("FIND-%d", f.ID)
 	return SearchEntry{
 		Type:   "audit_finding",
 		ID:     id,
 		Title:  f.Title,
-		Search: strings.ToLower(id + " " + f.Title + " " + f.Description),
+		Search: strings.ToLower(id + " " + f.Title + " " + stripAuditFindingSeedHeading(f.Description)),
+	}
+}
+
+// Legal requirements (#450). The type is `legal`, which GlobalSearch and
+// ReferenceManager route on. One builder, used by both buildSearchIndex and the
+// handler upserts, so the build and the handlers cannot drift.
+func legalSearchEntry(lr *db.LegalRequirement) SearchEntry {
+	return SearchEntry{
+		Type:   "legal",
+		ID:     lr.Identifier,
+		Title:  lr.Title,
+		Search: legalSearchText(lr),
 	}
 }
 
@@ -313,13 +339,8 @@ func (s *Server) buildSearchIndex(orgID int) {
 			return nil
 		}
 		entries := make([]SearchEntry, 0, len(items))
-		for _, lr := range items {
-			entries = append(entries, SearchEntry{
-				Type:   "legal",
-				ID:     lr.Identifier,
-				Title:  lr.Title,
-				Search: legalSearchText(&lr),
-			})
+		for i := range items {
+			entries = append(entries, legalSearchEntry(&items[i]))
 		}
 		return entries
 	})
