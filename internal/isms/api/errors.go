@@ -105,6 +105,14 @@ const (
 	CodeReviewWrongStatus    = "review_wrong_status"
 	CodeReviewAlreadyStatus  = "review_already_status"
 
+	// CodeReviewAwaitingPublication: the document's review is approved, not yet
+	// published, and the file is unchanged since it was sent — there is nothing
+	// to resend. CodeReviewAlreadyActive: a send lost the race for the
+	// one-active-review-per-document slot.
+	CodeReviewAwaitingPublication = "review_awaiting_publication"
+	CodeReviewAlreadyActive       = "review_already_active"
+	CodeReviewHasReviewerEdits    = "review_has_reviewer_edits"
+
 	// Change requests.
 	CodeChangeInvalidTransition = "change_invalid_transition"
 	CodeChangeTaskAlreadyLive   = "change_task_already_live"
@@ -172,6 +180,10 @@ var errorMessages = map[string]string{
 	CodeReviewWrongStatus:    "review is {status}",
 	CodeReviewAlreadyStatus:  "review is already {status}",
 
+	CodeReviewAwaitingPublication: "this document already has an approved review awaiting publication",
+	CodeReviewAlreadyActive:       "this document already has a review in progress",
+	CodeReviewHasReviewerEdits:    "this approved review contains reviewer edits that would overwrite later changes to the document — close it to start a new review",
+
 	CodeChangeInvalidTransition: "change is {status}, cannot move to {value}",
 	CodeChangeTaskAlreadyLive:   "{ref} already has an open implementation task",
 
@@ -235,7 +247,8 @@ const (
 // a new status-carrying code cannot ship without an entry.
 var errorStatusValues = map[string][]string{
 	// review.Status, whose state machine is documented in CLAUDE.md:
-	// open -> approved | changes_requested -> open, approved -> merged, and
+	// open -> approved | changes_requested -> open, approved -> merged,
+	// approved -> open (resubmit after the file changed), and
 	// any active status -> closed. `draft` is reachable through the document
 	// status the same field carries at :912.
 	CodeReviewWrongStatus:   {"draft", "open", "in_review", "approved", "changes_requested", "merged", "closed"},

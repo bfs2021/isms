@@ -1234,10 +1234,15 @@ func (s *Server) handleGetDocument(c echo.Context) error {
 	}
 	if found.Frontmatter.Status == "in_review" {
 		ctx := c.Request().Context()
-		if openReview, _ := s.db.GetOpenReviewForDocument(ctx, orgID, docID); openReview != nil {
+		if openReview, _ := s.db.GetActiveReviewForDocument(ctx, orgID, docID); openReview != nil {
 			resp["active_review_id"] = openReview.ID
 			resp["active_review_status"] = openReview.Status
 			resp["active_review_round"] = openReview.Round
+			if openReview.Status == "approved" {
+				changed, edits := approvedReviewState(st, found.Path, openReview)
+				resp["active_review_changed_since_sent"] = changed
+				resp["active_review_has_reviewer_edits"] = edits
+			}
 			// Pending suggestions count helps the author know what to address next.
 			if pending, err := s.db.CountPendingSuggestionsForReview(ctx, orgID, openReview.ID); err == nil {
 				resp["active_review_pending_suggestions"] = pending
@@ -1335,10 +1340,15 @@ func (s *Server) handleGetDocumentBody(c echo.Context) error {
 	// Include active review ID so the frontend can link directly to it
 	if pf.Frontmatter.Status == "in_review" {
 		ctx := c.Request().Context()
-		if openReview, _ := s.db.GetOpenReviewForDocument(ctx, orgID, docID); openReview != nil {
+		if openReview, _ := s.db.GetActiveReviewForDocument(ctx, orgID, docID); openReview != nil {
 			resp["active_review_id"] = openReview.ID
 			resp["active_review_status"] = openReview.Status
 			resp["active_review_round"] = openReview.Round
+			if openReview.Status == "approved" {
+				changed, edits := approvedReviewState(st, pf.Path, openReview)
+				resp["active_review_changed_since_sent"] = changed
+				resp["active_review_has_reviewer_edits"] = edits
+			}
 			if pending, err := s.db.CountPendingSuggestionsForReview(ctx, orgID, openReview.ID); err == nil {
 				resp["active_review_pending_suggestions"] = pending
 			}
@@ -1785,7 +1795,7 @@ func (s *Server) handleUpdateDocumentContent(c echo.Context) error {
 
 	// After successful save, check for open review and log activity
 	ctx := c.Request().Context()
-	openReview, _ := s.db.GetOpenReviewForDocument(ctx, orgID, docID)
+	openReview, _ := s.db.GetActiveReviewForDocument(ctx, orgID, docID)
 	if openReview != nil {
 		s.logAndNotify(ctx, orgID, &db.Activity{
 			DocumentID: docID,
@@ -1894,6 +1904,14 @@ func (s *Server) handleNeedsReview(c echo.Context) error {
 				approvedRef := review.MergeCommit
 				if approvedRef == "" {
 					approvedRef = review.CommitHash
+				}
+				// An approved review that is not yet published has no
+				// merge_commit, and commit_hash is the previous publish (or
+				// empty for a first review). What was approved is what was
+				// sent: reviewer edits live on review/<id> and never touch
+				// main. So compare against sent_head.
+				if review.Status == "approved" && review.SentHead != "" {
+					approvedRef = review.SentHead
 				}
 				if approvedRef == commitHash {
 					return nil // no changes since approval
