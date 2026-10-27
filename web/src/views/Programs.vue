@@ -23,7 +23,7 @@
           <p class="text-sm text-slate-500 mt-1">{{ t('programs.subtitle') }}</p>
         </div>
         <div class="flex gap-2">
-          <button v-if="canWrite" @click="showCreateForm = !showCreateForm"
+          <button v-if="canWrite" @click="createError = null; showCreateForm = !showCreateForm"
             class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
             {{ t('programs.action.add') }}
           </button>
@@ -66,6 +66,7 @@
             </div>
           </div>
           <div class="text-[10px] text-slate-600 mt-1">{{ t('programs.create.fill_in_later') }}</div>
+          <div v-if="createError" class="text-xs text-red-400">{{ createError }}</div>
           <div class="flex justify-end gap-2 pt-2">
             <button @click="showCreateForm = false" class="px-4 py-2 text-sm text-slate-400 hover:text-slate-200">{{ t('common.action.cancel') }}</button>
             <button @click="createProgram" :disabled="!newProgram.key || !newProgram.title"
@@ -232,6 +233,7 @@
                 <div v-if="canWrite" class="border border-red-900/40 rounded-lg p-4 space-y-3">
                   <div class="text-[11px] font-semibold text-red-400 uppercase tracking-wider">{{ t('common.heading.danger_zone') }}</div>
                   <div class="text-xs text-slate-400">{{ t('programs.danger.warning') }}</div>
+                  <div class="text-xs text-slate-400">{{ t('programs.danger.key_retired', { key: selected.key }) }}</div>
                   <button @click="deleteSelected" class="px-3 py-1.5 text-xs font-medium bg-red-900/40 hover:bg-red-800/60 text-red-300 border border-red-800/50 rounded-lg transition-colors">
                     {{ t('programs.danger.delete') }}
                   </button>
@@ -315,6 +317,10 @@ const editing = ref(false)
 const saving = ref(false)
 const editForm = reactive({ key: '', title: '', description: '', notes: '' })
 const newProgram = reactive({ key: '', title: '' })
+// A refused create (retired or taken key) is shown in the dialog, so the typed
+// key and title and the list behind it survive; `error` replaces the whole page.
+const createError = ref(null)
+watch(() => [newProgram.key, newProgram.title], () => { createError.value = null })
 
 useModalEscape(showCreateForm)
 useModalEscape(computed(() => !!selected.value), () => closeDetail())
@@ -440,6 +446,7 @@ async function saveEdit() {
 }
 
 async function createProgram() {
+  createError.value = null
   try {
     const created = await api.createProgram({ key: newProgram.key, title: newProgram.title })
     newProgram.key = ''
@@ -458,13 +465,14 @@ async function createProgram() {
       router.push(orgPath(`/programs/${created.id}`))
     }
   } catch (e) {
-    error.value = renderApiError(e)
+    createError.value = renderApiError(e)
   }
 }
 
 async function deleteSelected() {
   if (!selected.value) return
-  const question = t('programs.danger.confirm', { key: selected.value.key })
+  const key = selected.value.key
+  const question = t('programs.danger.confirm', { key }) + ' ' + t('programs.danger.key_retired', { key })
   if (!await confirmAsk(question, { confirm: t('common.action.delete'), variant: 'danger' })) return
   try {
     await api.deleteProgram(selected.value.id)

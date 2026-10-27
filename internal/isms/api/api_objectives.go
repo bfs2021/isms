@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/labstack/echo/v4"
 	"isms.sh/internal/isms/db"
 )
@@ -100,6 +102,21 @@ func (s *Server) handleListPrograms(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{"data": programs})
 }
 
+// programKeyConflict maps a refused program create to a coded 409 naming the
+// key: a retired key (#367) or one a live program holds, matched by constraint
+// name so a concurrent duplicate is covered too. It returns nil for any other
+// error so the caller keeps its own path.
+func programKeyConflict(err error, key string) error {
+	if errors.Is(err, db.ErrProgramKeyRetired) {
+		return apiError(http.StatusConflict, CodeProgramKeyRetired, Ref(key))
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "uq_programs_org_key" {
+		return apiError(http.StatusConflict, CodeProgramKeyTaken, Ref(key))
+	}
+	return nil
+}
+
 func (s *Server) handleCreateProgram(c echo.Context) error {
 	if err := requireRole(c, "admin", "manager"); err != nil {
 		return err
@@ -130,6 +147,9 @@ func (s *Server) handleCreateProgram(c echo.Context) error {
 	}
 
 	if err := s.db.CreateProgram(ctx, orgID, &p); err != nil {
+		if perr := programKeyConflict(err, p.Key); perr != nil {
+			return perr
+		}
 		return pgxHTTPError(err)
 	}
 
@@ -247,21 +267,46 @@ func (s *Server) handleDeleteProgram(c echo.Context) error {
 		return errNotFound("program")
 	}
 
-	if err := s.db.DeleteProgram(ctx, orgID, id); err != nil {
+	user := getUserEmail(c)
+	var key string
+	err = s.db.WithOrgTx(ctx, orgID, func(ctx context.Context, tx pgx.Tx) error {
+		k, objectiveIDs, err := db.DeleteProgramTx(ctx, tx, orgID, id)
+		if err != nil {
+			return err
+		}
+		key = k
+		if err := db.LogChangeTx(ctx, tx, orgID, &db.ChangelogEntry{
+			EntityType: "program",
+			EntityID:   id,
+			Action:     "delete",
+			ChangedBy:  user,
+		}); err != nil {
+			return err
+		}
+		for _, oid := range objectiveIDs {
+			if err := db.LogChangeTx(ctx, tx, orgID, &db.ChangelogEntry{
+				EntityType: "objective",
+				EntityID:   oid,
+				Action:     "delete",
+				ChangedBy:  user,
+				Reason:     fmt.Sprintf("program %s deleted", key),
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errNotFound("program")
+	}
+	if err != nil {
 		return pgxHTTPError(err)
 	}
 
-	user := getUserEmail(c)
-	s.logChange(ctx, orgID, &db.ChangelogEntry{
-		EntityType: "program",
-		EntityID:   id,
-		Action:     "delete",
-		ChangedBy:  user,
-	})
 	s.logAndNotify(ctx, orgID, &db.Activity{
 		Actor:  user,
 		Action: "program_deleted",
-		Detail: fmt.Sprintf("Program %d deleted", id),
+		Detail: fmt.Sprintf("Program %s deleted", key),
 	})
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
@@ -368,6 +413,10 @@ func (s *Server) handleCreateObjective(c echo.Context) error {
 		return err
 	}
 	if err := s.db.CreateObjective(ctx, orgID, &o); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The program was deleted after the pre-check above.
+			return apiError(http.StatusBadRequest, CodeNotFoundInOrg, Entity("program"))
+		}
 		return pgxHTTPError(err)
 	}
 

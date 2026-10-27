@@ -1745,6 +1745,9 @@ func applyProgramCreate(ctx context.Context, tx pgx.Tx, s *Server, orgID int, sg
 		return "", 0, err
 	}
 	if err := db.CreateProgramTx(ctx, tx, orgID, &pr); err != nil {
+		if perr := programKeyConflict(err, pr.Key); perr != nil {
+			return "", 0, perr
+		}
 		return "", 0, err
 	}
 	if err := db.LogChangeTx(ctx, tx, orgID, &db.ChangelogEntry{
