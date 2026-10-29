@@ -393,6 +393,7 @@
     "contract": "contract",
     "contract_expired": "{count}d ago",
     "contract_expires_in": "in {count}d",
+    "created_failed": ", {count} failed",
     "external_link": "link"
   },
   "suggest_new": {

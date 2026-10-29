@@ -389,6 +389,7 @@
     "contract": "kontrak",
     "contract_expired": "{count}h lalu",
     "contract_expires_in": "dalam {count}h",
+    "created_failed": ", {count} gagal",
     "external_link": "tautan"
   },
   "suggest_new": {

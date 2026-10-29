@@ -389,6 +389,7 @@
     "contract": "contrato",
     "contract_expired": "há {count}d",
     "contract_expires_in": "em {count}d",
+    "created_failed": ", {count} com falha",
     "external_link": "link"
   },
   "suggest_new": {
