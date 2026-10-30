@@ -1565,8 +1565,9 @@ func applyTaskUpdate(ctx context.Context, tx pgx.Tx, s *Server, orgID int, sg *d
 		return "", 0, err
 	}
 	// Keep the shared search index in step with handleUpdateTask: a task that is
-	// (or becomes) private leaves it; a created or public one is upserted so a
-	// rename or a private→public flip is searchable right away (#178, #500).
+	// (or becomes) private leaves it; a public one (including one just made
+	// public) is upserted so a rename or a private→public flip is searchable
+	// right away (#178, #500).
 	if updated.Private {
 		ident := old.Identifier
 		registerApplyPostCommit(ctx, func() { s.searchRemove(orgID, "task", ident) })

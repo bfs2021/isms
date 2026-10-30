@@ -147,11 +147,9 @@ func (idx *SearchIndex) Remove(orgID int, entryType, entryID string) {
 	}
 }
 
-// buildSearchIndex loads all entity types for an org and populates the index.
-// objectiveSearchEntries / programSearchEntries build the index rows for these
-// two types. Kept pure (no DB) so they're unit testable (#171 review). ID is the
-// identifier form (objective display_id, program key) that resolveEntityTitle and
-// the deep-link routes resolve.
+// objectiveSearchEntry builds the index row for one objective: the identifier
+// form (display_id) as the ID, so resolveEntityTitle and the deep-link routes
+// resolve it. Kept pure (no DB) so it's unit testable (#171 review).
 func objectiveSearchEntry(o *db.Objective) SearchEntry {
 	return SearchEntry{
 		Type:   "objective",
@@ -161,6 +159,9 @@ func objectiveSearchEntry(o *db.Objective) SearchEntry {
 	}
 }
 
+// objectiveSearchEntries / programSearchEntries build the index rows for these
+// two types. ID is the identifier form (objective display_id, program key) that
+// resolveEntityTitle and the deep-link routes resolve.
 func objectiveSearchEntries(items []db.Objective) []SearchEntry {
 	entries := make([]SearchEntry, 0, len(items))
 	for i := range items {
@@ -352,6 +353,7 @@ func auditFindingSearchEntries(items []db.AuditFinding) []SearchEntry {
 	return entries
 }
 
+// buildSearchIndex loads all entity types for an org and populates the index.
 func (s *Server) buildSearchIndex(orgID int) {
 	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -575,16 +577,6 @@ func (s *Server) buildSearchIndex(orgID int) {
 
 	s.searchIndex.Set(orgID, all)
 	log.Printf("search: rebuilt index for org %d (%d entries, %dms)", orgID, len(all), time.Since(start).Milliseconds())
-}
-
-// searchUpsert updates a single entry in the search index after a create or update.
-func (s *Server) searchUpsert(orgID int, entryType, id, title, searchText string) {
-	s.searchIndex.Upsert(orgID, SearchEntry{
-		Type:   entryType,
-		ID:     id,
-		Title:  title,
-		Search: strings.ToLower(searchText),
-	})
 }
 
 // searchRemove removes a single entry from the search index after a delete.
